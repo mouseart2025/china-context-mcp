@@ -1,0 +1,11 @@
+# Smithery 收录所需的两份文件之一（另一份是 .mcp.json）。
+# 依据 Smithery 的 scanner：只有 smithery.yaml 而没有 .mcp.json 会通过不了校验。
+# 该服务零凭证、纯 stdio 本地运行，无需 config schema。
+startCommand:
+  type: stdio
+  configSchema:
+    type: object
+    properties: {}
+    required: []
+  commandFunction: |-
+    (config) => ({ command: 'python', args: ['-m', 'china_context_mcp'] })

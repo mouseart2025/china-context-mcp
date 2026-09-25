@@ -1,0 +1,10 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-07-09/schema.json",
+  "mcpServers": {
+    "china-context-mcp": {
+      "command": "python",
+      "args": ["-m", "china_context_mcp"],
+      "env": {}
+    }
+  }
+}

@@ -139,21 +139,31 @@ def _merge_holidays(year: int, entries: dict) -> list:
     除夕/初一/初二…多个名称（target 字段在假日条目上恒为 "-" 不可用于分组），
     若强制同名会把一个春节拆成一整串单日，与用户心智（"春节放 9 天"）严重不符。
     补班日（holiday=false）不参与合并，单独列出。
-    返回 [(name, start_md, end_md, days, triple_days), ...]，name 取区间首个名称。
+
+    第 6 项是**逐日明细**，按工资倍率分组：{3: [(md, name), ...], 1|2: [...]}。
+    它回答的是 holiday_summary 此前给不出的问题——
+    「春节区间内**具体哪几天**要付 3 倍」（2026 年是 02-16 除夕 ~ 02-19 初三）。
+    不加这一层，调用方只能拿到「3 倍共 4 天」，还得自己回查 365 行原始数据。
+
+    返回 [(name, start_md, end_md, days, triple_days, by_wage), ...]，name 取区间首个名称。
     """
     merged = []
     for md, v in sorted(entries.items()):
         if not v.get("holiday"):
             continue
-        triple = 1 if v.get("wage") == 3 else 0
+        wage = v.get("wage") or 1
+        triple = 1 if wage == 3 else 0
+        day = (md, (v.get("name") or "").strip())
         if merged and (_md_to_date(year, md) - _md_to_date(year, merged[-1][2])).days == 1:
             p = merged[-1]
             p[2] = md
             p[3] += 1
             p[4] += triple
+            p[5].setdefault(wage, []).append(day)
         else:
-            merged.append([(v.get("name") or "（未命名）").strip(), md, md, 1, triple])
-    return [(n, s, e, d, t) for n, s, e, d, t in merged]
+            merged.append([(v.get("name") or "（未命名）").strip(), md, md, 1, triple,
+                           {wage: [day]}])
+    return merged
 
 
 @mcp.tool()
@@ -162,7 +172,9 @@ def holiday_summary(year: int = None) -> str:
 
     与 holiday_info 的区别：本工具对 timor 全年扁平数据做聚合，给出
     holiday_info 拿不到、而 AI 自身容易算错的结论——连续假期区间与天数、
-    法定 3 倍工资天数、全部调休补班日、全年总休假天数。
+    法定 3 倍工资天数与**具体是哪几天**、全部调休补班日、全年总休假天数。
+    每条区间的逐日明细按工资倍率分组输出，例如
+    `3倍 4 天：02-16、02-17 初一、02-18 初二、02-19 初三`。
 
     参数 year：4 位年份，省略则用当前年。
     适用：年度休假规划、考勤与排班、HR 与薪酬核算。
@@ -185,11 +197,28 @@ def holiday_summary(year: int = None) -> str:
         triple_days = sum(x[4] for x in merged)
         lines = [f"{y} 年中国节假日与调休摘要", "",
                  f"【假期区间】共 {len(merged)} 个，合计 {total_days} 天（不含补班）"]
-        for name, s, e, days, triple in merged:
+        for name, s, e, days, triple, by_wage in merged:
             seg = f"  · {name}  {s} ~ {e}   {days}天"
             if triple:
                 seg += f"（3倍工资 {triple} 天）"
             lines.append(seg)
+            # ★ 逐日明细按倍率分组。缺了这一段，「3 倍共 4 天」这个结论仍然要调用方
+            #   回查 365 行原始数据才能知道是哪几天 —— 工作没被减掉。
+            for wage in sorted(by_wage, reverse=True):
+                items = by_wage[wage]
+                if len(items) < 2:
+                    continue
+                # ★ 只显示首日的名称：同一区间内 timor 常给每天相同的 name（元旦 3 天都叫
+                #   「元旦」），逐一拼会造成「元旦、元旦、元旦」这种毫无增量信息的输出。
+                #   真正要回答的是「哪几天」，所以日期必显，名称仅在异于首日时才带。
+                base = items[0][1]
+                parts = []
+                for md, nm in items:
+                    # ★ 用完整 MM-DD，不能只给「日」：「2倍 3 天：03、04、05」出现在
+                    #   「05-01 ~ 05-05」下面时会被读成 3 月 3/4/5 日 —— 比不给还糟。
+                    tag = f"{md} {nm}".strip() if nm and nm != base else md
+                    parts.append(tag)
+                lines.append(f"      {'3' if wage == 3 else '2'}倍 {len(items)} 天：{'、'.join(parts)}")
         lines.append("")
         if makeup:
             lines.append(f"【调休补班】共 {len(makeup)} 天")
