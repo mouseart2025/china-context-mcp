@@ -58,8 +58,9 @@ def holiday_info(date: str) -> str:
         d = _get(f"https://timor.tech/api/holiday/info/{date}")
         if d.get("code") != 0:
             return f"[节假日] 接口返回异常：{json.dumps(d, ensure_ascii=False)[:160]}"
-        h = d.get("holiday", {})
-        t = d.get("type", {})
+        # 非节假日时 timor 返回 holiday: null，必须容错
+        h = d.get("holiday") or {}
+        t = d.get("type", {}) or {}
         is_holiday = bool(h.get("holiday"))
         # 工作日判据：非法定假日 且 非普通周末（调休补班=需上班）
         wk = datetime.strptime(date, "%Y-%m-%d").weekday()
