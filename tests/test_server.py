@@ -27,7 +27,23 @@ def test_tools_registered():
     async def _run():
         async with Client(mcp) as c:
             names = [t.name for t in await c.list_tools()]
-            assert "random_poem" in names and "holiday_info" in names
+            for want in ("random_poem", "holiday_info", "history_today"):
+                assert want in names, f"缺少工具 {want}"
+    asyncio.run(_run())
+
+
+def test_history_today_specific_and_default():
+    async def _run():
+        async with Client(mcp) as c:
+            # 指定日期
+            text = _text(await c.call_tool("history_today", {"date": "09-25"}))
+            assert "历史上的今天（09-25）" in text and "条" in text
+            # 默认今天（不传 date）
+            text2 = _text(await c.call_tool("history_today", {}))
+            assert "历史上的今天" in text2
+            # 非法格式降级
+            bad = _text(await c.call_tool("history_today", {"date": "not-a-date"}))
+            assert "格式应为" in bad
     asyncio.run(_run())
 
 

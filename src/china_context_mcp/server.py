@@ -1,10 +1,16 @@
 # -*- coding: utf-8 -*-
-"""china-context-mcp 服务端：FastMCP + 两个零凭证中文数据源工具。
+"""china-context-mcp 服务端：FastMCP + 零凭证中文数据源工具。
 
 架构约束（自进化架构师审计）：
   - 出站请求必须：严格超时 + 有限重试（上限 2）+ 失败可降级，禁止无界循环
-  - 不可变数据（节假日）本地缓存，削减冗余出站调用与延迟
+  - 不可变数据本地缓存，削减冗余出站调用与延迟
   - TLS 默认校验开启（不关闭证书验证）
+
+当前模块（均零凭证、公开 API）：
+  - random_poem       今日诗词（jinrishici）
+  - holiday_info      中国节假日/调休工作日（timor.tech）
+  - history_today     历史上的今天（60s-api.viki.moe）
+  - idiom             ⏸ 暂缓：未找到可达的零凭证成语 API（详见 README 路线图）
 """
 import functools
 import json
@@ -21,8 +27,9 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 
 mcp = FastMCP("china-context-mcp")
 
-# 不可变数据缓存：节假日结果按日期永久有效，避免重复打网络
+# 不可变数据缓存：节假日/历史事件按日期永久有效，避免重复打网络
 _HOLIDAY_CACHE: "functools.LRUCache[str, dict]" = functools.lru_cache(maxsize=2048)
+_HISTORY_CACHE: "functools.LRUCache[str, dict]" = functools.lru_cache(maxsize=1024)
 
 
 def _get(url: str, timeout: int = 8, retries: int = 2):
@@ -105,6 +112,71 @@ def holiday_info(date: str) -> str:
         )
     except Exception as e:  # noqa: BLE001
         return _err("节假日", e)
+
+
+def _normalize_md(date: str):
+    """把 None / 2026-09-25 / 09-25 归一为 (month, day) 整数元组。
+
+    返回 None 表示格式非法。
+    """
+    if not date:
+        t = datetime.now()
+        return t.month, t.day
+    s = date.strip()
+    try:
+        if len(s) == 10 and s[4] == "-" and s[7] == "-":
+            datetime.strptime(s, "%Y-%m-%d")
+            m, d = int(s[5:7]), int(s[8:10])
+        elif len(s) == 5 and s[2] == "-":
+            m, d = int(s[0:2]), int(s[3:5])
+        else:
+            return None
+    except ValueError:
+        return None
+    if not (1 <= m <= 12 and 1 <= d <= 31):
+        return None
+    return m, d
+
+
+@_HISTORY_CACHE
+def _history_raw(md: str) -> dict:
+    """按 MM-DD 取 60s-api 历史事件原始数据；按日期缓存（不可变）。"""
+    return _get(f"https://60s-api.viki.moe/v2/today_in_history?date={md}")
+
+
+@mcp.tool()
+def history_today(date: str = None) -> str:
+    """返回「历史上的今天」：某月某日发生的历史事件列表（标题 + 年份 + 简述）。
+
+    参数 date：可选，格式 "MM-DD"（如 "09-25"）或 "YYYY-MM-DD"（如 "2026-09-25"）。
+              省略则使用今天。
+    适用：历史问答、内容创作、文化类 AI 陪练。
+    数据来自 60s-api.viki.moe（公开、零凭证）。
+    """
+    md_tuple = _normalize_md(date)
+    if md_tuple is None:
+        return "[历史今日] 日期格式应为 MM-DD 或 YYYY-MM-DD，例如 09-25"
+    m, d = md_tuple
+    md = f"{m:02d}-{d:02d}"
+    try:
+        resp = _history_raw(md)
+        if resp.get("code") != 200:
+            return f"[历史今日] 接口返回异常：{json.dumps(resp, ensure_ascii=False)[:160]}"
+        items = (resp.get("data") or {}).get("items") or []
+        if not items:
+            return f"{md} 暂无收录的历史事件。"
+        lines = [f"历史上的今天（{md}）共 {len(items)} 条："]
+        for it in items:
+            yr = it.get("year", "")
+            title = it.get("title", "")
+            desc = (it.get("description") or "").strip()
+            line = f"  · {yr}年 {title}"
+            if desc:
+                line += f"：{desc[:80]}"
+            lines.append(line)
+        return "\n".join(lines)
+    except Exception as e:  # noqa: BLE001
+        return _err("历史今日", e)
 
 
 def main():
