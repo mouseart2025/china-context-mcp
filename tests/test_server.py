@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
-"""china-context-mcp 回归测试：用 FastMCP 客户端真连真调（真联网，不 mock）。
+"""china-context-mcp 回归测试：本地算法真算，外部数据走**离线快照**。
 
 跑法：PYTHONPATH=src pytest -q
+真联网冒烟（可选）：LIVE=1 PYTHONPATH=src pytest -q -k live
+
+★ 为什么三路外部依赖全部换成快照（2026-09-25 定）：
+  timor.tech 对**机房 IP**（GitHub Actions runner）返回 **403 Forbidden** ——
+  不是限流，是直接不放行。于是 CI 的绿/红被押在「上游愿不愿意放行机房 IP」
+  这件事上，等于把我们的回归测试交给别人控制。快照只锁**我们自己的**
+  解析与聚合逻辑，这部分才是本仓库该负责的正确性。
 """
 import asyncio
 import json
+import os
 import pathlib
 import re
 
@@ -12,15 +20,32 @@ import pytest
 from fastmcp import Client
 from china_context_mcp.server import mcp, _ID_WEIGHTS, _ID_CHECK
 
-# ★ 2026 全年上游响应快照（2026-09-25 抓取，39 条，code=0）。
-#   聚合逻辑是我们自己的代码，它的正确性不该由上游可用性决定。
-FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "timor_2026.json"
+FIXDIR = pathlib.Path(__file__).parent / "fixtures"
+# 2026 全年上游响应快照（39 条，code=0）
+TIMOR_YEAR = json.loads((FIXDIR / "timor_2026.json").read_text(encoding="utf-8"))
+# 其余三路依赖的快照：info_<date>（6 个日期）、history_09-25、poem_1
+BUNDLE = json.loads((FIXDIR / "bundle.json").read_text(encoding="utf-8"))
+
+
+def _use_fixtures(monkeypatch) -> None:
+    """把三路外部依赖换成离线快照；被测对象仍是真实的 MCP 工具函数。"""
+    import china_context_mcp.server as srv
+
+    monkeypatch.setattr(srv, "_holiday_year_raw", lambda _y: TIMOR_YEAR)
+    monkeypatch.setattr(
+        srv, "_holiday_raw",
+        lambda d: BUNDLE.get(f"info_{d}") or {"code": 0, "type": {}, "holiday": None})
+    monkeypatch.setattr(srv, "_history_raw", lambda _md: BUNDLE["history_09-25"])
+    monkeypatch.setattr(srv, "_get", lambda url, **_k: BUNDLE["poem_1"])
 
 
 def _skip_if_limited(text: str) -> None:
-    """上游限流(429)时跳过而非判红：CI 的稳定性不押在上游限流策略上。"""
-    if "429" in text or "Too Many Requests" in text:
-        pytest.skip(f"上游限流，跳过联网断言：{text[:80]}")
+    """上游不放行（403/429）时跳过而非判红：那不是我们代码的错。
+
+    正常路径已走快照，这条只在有人直连上游时兜底。
+    """
+    if any(k in text for k in ("429", "403", "Too Many Requests", "Forbidden")):
+        pytest.skip(f"上游未放行，跳过联网断言：{text[:80]}")
 
 
 def _mk_id(born: str, seq: str = "002", prefix: str = "110105") -> str:
@@ -54,7 +79,9 @@ def test_tools_registered():
     asyncio.run(_run())
 
 
-def test_history_today_specific_and_default():
+def test_history_today_specific_and_default(monkeypatch):
+    _use_fixtures(monkeypatch)
+
     async def _run():
         async with Client(mcp) as c:
             # 指定日期
@@ -70,7 +97,9 @@ def test_history_today_specific_and_default():
     asyncio.run(_run())
 
 
-def test_random_poem_returns_content():
+def test_random_poem_returns_content(monkeypatch):
+    _use_fixtures(monkeypatch)
+
     async def _run():
         async with Client(mcp) as c:
             text = _text(await c.call_tool("random_poem", {}))
@@ -79,7 +108,9 @@ def test_random_poem_returns_content():
     asyncio.run(_run())
 
 
-def test_holiday_six_cases():
+def test_holiday_six_cases(monkeypatch):
+    _use_fixtures(monkeypatch)
+
     async def _run():
         async with Client(mcp) as c:
             for date, (name, work) in CASES.items():
@@ -103,10 +134,7 @@ def test_holiday_summary_2026_aggregate(monkeypatch):
     重点锁住「春节不被农历名拆散」——这是 _merge_holidays 按日期连续而非
     同名合并的原因（同名合并会把春节拆成 除夕/初一/初二…9 个单日区间）。
     """
-    import china_context_mcp.server as srv
-
-    snap = json.loads(FIXTURE.read_text(encoding="utf-8"))
-    monkeypatch.setattr(srv, "_holiday_year_raw", lambda _y: snap)
+    _use_fixtures(monkeypatch)
 
     async def _run():
         async with Client(mcp) as c:
@@ -169,4 +197,22 @@ def test_idcard_check_valid_and_rejects():
             male = _text(await c.call_tool("idcard_check",
                                            {"id_number": _mk_id("19900101", seq="001")}))
             assert "男" in male, f"奇数顺序码应为男：{male}"
+    asyncio.run(_run())
+
+
+@pytest.mark.skipif(os.environ.get("LIVE") != "1",
+                    reason="真联网冒烟需显式 LIVE=1；默认不跑，避免 CI 押在上游放行上")
+def test_live_smoke_upstream_reachable():
+    """真联网冒烟：只验「上游还活着、返回结构没变」，不验我们的聚合。
+
+    上游对机房 IP 会 403，故默认不跑 —— 需要确认上游契约时人肉跑一次。
+    """
+    async def _run():
+        async with Client(mcp) as c:
+            for tool, args in (("random_poem", {}),
+                               ("holiday_info", {"date": "2026-10-01"}),
+                               ("history_today", {"date": "09-25"})):
+                text = _text(await c.call_tool(tool, args))
+                _skip_if_limited(text)
+                assert "获取失败" not in text, f"{tool} 上游不可达：{text[:80]}"
     asyncio.run(_run())

@@ -40,7 +40,7 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 try:
     _VERSION = _pkg_version("china-context-mcp")
 except PackageNotFoundError:      # 未安装（如直接跑源码）时兜底
-    _VERSION = "0.1.2"
+    _VERSION = "0.1.3"
 
 mcp = FastMCP("china-context-mcp", version=_VERSION)
 

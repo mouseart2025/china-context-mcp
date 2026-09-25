@@ -1,0 +1,198 @@
+{
+ "info_2026-10-01": {
+  "code": 0,
+  "type": {
+   "type": 2,
+   "name": "国庆节",
+   "week": 4
+  },
+  "holiday": {
+   "holiday": true,
+   "name": "国庆节",
+   "wage": 3,
+   "date": "2026-10-01",
+   "rest": 3
+  }
+ },
+ "info_2026-09-27": {
+  "code": 0,
+  "type": {
+   "type": 2,
+   "name": "中秋节",
+   "week": 7
+  },
+  "holiday": {
+   "holiday": true,
+   "name": "中秋节",
+   "wage": 2,
+   "date": "2026-09-27",
+   "rest": 1
+  }
+ },
+ "info_2026-09-28": {
+  "code": 0,
+  "type": {
+   "type": 0,
+   "name": "周一",
+   "week": 1
+  },
+  "holiday": null
+ },
+ "info_2026-09-20": {
+  "code": 0,
+  "type": {
+   "type": 3,
+   "name": "中秋节前补班",
+   "week": 7
+  },
+  "holiday": {
+   "holiday": false,
+   "name": "中秋节前补班",
+   "after": false,
+   "wage": 1,
+   "target": "中秋节",
+   "date": "2026-09-20",
+   "rest": 58
+  }
+ },
+ "info_2026-10-10": {
+  "code": 0,
+  "type": {
+   "type": 3,
+   "name": "国庆节后补班",
+   "week": 6
+  },
+  "holiday": {
+   "holiday": false,
+   "after": true,
+   "wage": 1,
+   "name": "国庆节后补班",
+   "target": "国庆节",
+   "date": "2026-10-10"
+  }
+ },
+ "info_2026-10-11": {
+  "code": 0,
+  "type": {
+   "type": 1,
+   "name": "周日",
+   "week": 7
+  },
+  "holiday": null
+ },
+ "history_09-25": {
+  "code": 200,
+  "message": "获取成功。开源地址 https://github.com/vikiboss/60s，反馈群 595941841。",
+  "data": {
+   "date": "9-25",
+   "month": 9,
+   "day": 25,
+   "items": [
+    {
+     "title": "金朝第九位皇帝金哀宗完颜守绪出生",
+     "year": "1198",
+     "description": "完颜守绪（1198年9月25日－1234年2月9日），本名完颜守礼，女真名完颜宁甲速，金朝第九位皇帝（1224年1月15日－1234年2月9日），金宣宗完颜珣第三子。",
+     "event_type": "birth",
+     "link": "https://baike.baidu.com/item/%E5%AE%8C%E9%A2%9C%E5%AE%88%E7%BB%AA"
+    },
+    {
+     "title": "日本室町幕府第三任将军足利义满出生",
+     "year": "1358",
+     "description": "足利义满（1358年9月25日－1408年5月31日），室町幕府第三任将军，1368年继位。1378年移居京都室町，正式称室町幕府。",
+     "event_type": "birth",
+     "link": "https://baike.baidu.com/item/%E8%B6%B3%E5%88%A9%E4%B9%89%E6%BB%A1"
+    },
+    {
+     "title": "光速发现者奥勒·罗默出生",
+     "year": "1644",
+     "description": "奥勒·罗默（1644年9月25日—1710年9月19日）是丹麦天文学家，以首次证明光速有限并对其进行测量而闻名。",
+     "event_type": "birth",
+     "link": "https://baike.baidu.com/item/%E5%A5%A5%E5%8B%92%C2%B7%E7%BD%97%E9%BB%98"
+    },
+    {
+     "title": "英国首相亨利·佩勒姆出生",
+     "year": "1694",
+     "description": "亨利·佩勒姆（Henry Pelham，1694年9月25日－1754年3月6日）英国首相（1743-1754）。佩勒姆是托马斯·佩勒姆，第一代佩勒姆男爵的小儿子，母亲是格蕾丝·霍利斯夫人，她是第三代克莱尔伯爵的女儿。",
+     "event_type": "birth",
+     "link": "https://baike.baidu.com/item/%E4%BA%A8%E5%88%A9%C2%B7%E4%BD%A9%E5%8B%92%E5%A7%86"
+    },
+    {
+     "title": "清朝皇帝清高宗爱新觉罗·弘历出生",
+     "year": "1711",
+     "description": "爱新觉罗·弘历 （1711年－1799年），清朝第六位皇帝，也是清朝入关之后的第四位皇帝。年号乾隆，寓意“天道昌隆”。",
+     "event_type": "birth",
+     "link": "https://baike.baidu.com/item/%E7%88%B1%E6%96%B0%E8%A7%89%E7%BD%97%C2%B7%E5%BC%98%E5%8E%86"
+    },
+    {
+     "title": "奥地利作曲家老约翰·施特劳斯逝世",
+     "year": "1849",
+     "description": "约翰·巴普蒂斯特·施特劳斯(Johann Baptist Strauss，1804年3月14日一1849年9月25日)，1804年3月14日出生在维也纳，1849年9月25日卒于同地。维也纳音乐家。",
+     "event_type": "death",
+     "link": "https://baike.baidu.com/item/%E7%BA%A6%E7%BF%B0%C2%B7%E6%96%BD%E7%89%B9%E5%8A%B3%E6%96%AF/10084172"
+    },
+    {
+     "title": "杭州雷峰塔倒坍",
+     "year": "1924",
+     "description": "雷峰塔是杭州西湖名景之一。它初名皇妃塔，是吴越国王钱俶因黄妃得子所建。后因其位于夕照山的雷锋上而改名雷峰塔。1924年雷峰旧塔倒塌，新塔重建后成为中国首座彩色铜雕宝塔。",
+     "event_type": "event",
+     "link": "https://baike.baidu.com/item/%E9%9B%B7%E5%B3%B0%E5%A1%94/427171"
+    },
+    {
+     "title": "抗日战争中，平型关大捷，中方取得第一次完胜",
+     "year": "1937",
+     "description": "平型关大捷，又称为平型关战斗、平型关伏击战，发生于1937年9月25日，是抗日战争时期八路军在山西省东北部平型关地区对日军发动的一次伏击战。",
+     "event_type": "event",
+     "link": "https://baike.baidu.com/item/%E5%B9%B3%E5%9E%8B%E5%85%B3%E5%A4%A7%E6%8D%B7/68644"
+    },
+    {
+     "title": "美国民权运动，小石城事件",
+     "year": "1957",
+     "description": "小石城（Little rock）是美国阿肯色州的首府（也是前总统Clinton的家乡）。",
+     "event_type": "event",
+     "link": "https://baike.baidu.com/item/%E5%B0%8F%E7%9F%B3%E5%9F%8E%E4%BA%8B%E4%BB%B6"
+    },
+    {
+     "title": "德国作家雷马克逝世",
+     "year": "1970",
+     "description": "德国小说家，主要由於著有《西线无战事》(1929)一书而知名。这部小说可能是描写第一次世界大战最著名和最有代表性的作品。",
+     "event_type": "death",
+     "link": "https://baike.baidu.com/item/%E5%9F%83%E9%87%8C%E5%B8%8C%C2%B7%E7%8E%9B%E5%88%A9%E4%BA%9A%C2%B7%E9%9B%B7%E9%A9%AC%E5%85%8B"
+    },
+    {
+     "title": "作家周立波逝世",
+     "year": "1979",
+     "description": "周立波（1908~1979），原名周绍仪，字凤翔，又名奉悟。湖南益阳人，中国共产党优秀党员，中国现代著名作家、编译家。早年在上海劳动大学读过书，1928年开始写作，1934年参加“左联”，同年加入中国共产党。抗战爆发后作为战地记者走遍华北前线，1939年到延安，任教于鲁迅文学艺术学院，后主编《解放日报》文艺副刊。1942年参加延安文艺座谈会，1946年去东北参加土改工作。新中国成立后创作了大量描写农村新人新貌的小说和散文。1979年9月25日因病去世。他的小说清新秀丽，别具一格，擅长描写农村中的生活，乡土气息浓厚，为读者所喜爱。",
+     "event_type": "death",
+     "link": "https://baike.baidu.com/item/%E5%91%A8%E7%AB%8B%E6%B3%A2/5014785"
+    },
+    {
+     "title": "大卫·斯洛文斯基发现了第28个梅森素数",
+     "year": "1982",
+     "description": "梅森素数是由梅森数而来。所谓梅森数，是指形如2p－1的一类数，其中指数p是素数，常记为Mp 。",
+     "event_type": "event",
+     "link": "https://baike.baidu.com/item/%E6%A2%85%E6%A3%AE%E7%B4%A0%E6%95%B0"
+    },
+    {
+     "title": "美国发射火星观察者探测器",
+     "year": "1992",
+     "description": "火星观察者，1992年9月25日， 火星观察者号探测器发射成功。它重2.5吨，携带7部仪器。",
+     "event_type": "event",
+     "link": "https://baike.baidu.com/item/%E7%81%AB%E6%98%9F%E8%A7%82%E5%AF%9F%E8%80%85"
+    },
+    {
+     "title": "美国流行乐歌手安迪·威廉斯逝世",
+     "year": "2012",
+     "description": "安迪·威廉姆斯（Andy Williams，1927年12月3日—2012年9月25日），享誉已久的美国歌坛大师。",
+     "event_type": "death",
+     "link": "https://baike.baidu.com/item/%E5%AE%89%E8%BF%AA%C2%B7%E5%A8%81%E5%BB%89%E6%96%AF"
+    }
+   ]
+  }
+ },
+ "poem_1": {
+  "content": "落絮无声春堕泪，行云有影月含羞。",
+  "origin": "浣溪沙·门隔花深梦旧游",
+  "author": "吴文英",
+  "category": "古诗文-植物-柳树"
+ }
+}
