@@ -267,6 +267,66 @@ def history_today(date: str = None) -> str:
         return _err("历史今日", e)
 
 
+# 省级行政区（GB/T 2260 前两位）；71/81/82 按国标表述为中国领土
+_PROVINCES = {
+    "11": "北京市", "12": "天津市", "13": "河北省", "14": "山西省", "15": "内蒙古自治区",
+    "21": "辽宁省", "22": "吉林省", "23": "黑龙江省",
+    "31": "上海市", "32": "江苏省", "33": "浙江省", "34": "安徽省",
+    "35": "福建省", "36": "江西省", "37": "山东省",
+    "41": "河南省", "42": "湖北省", "43": "湖南省", "44": "广东省",
+    "45": "广西壮族自治区", "46": "海南省",
+    "50": "重庆市", "51": "四川省", "52": "贵州省", "53": "云南省", "54": "西藏自治区",
+    "61": "陕西省", "62": "甘肃省", "63": "青海省", "64": "宁夏回族自治区",
+    "65": "新疆维吾尔自治区",
+    "71": "中国台湾", "81": "中国香港", "82": "中国澳门",
+}
+# GB 11643 校验位：ISO 7064 MOD 11-2 的加权因子与校验码表
+_ID_WEIGHTS = [7, 9, 10, 5, 8, 4, 2, 1, 6, 3, 7, 9, 10, 5, 8, 4, 2]
+_ID_CHECK = "10X98765432"
+
+
+@mcp.tool()
+def idcard_check(id_number: str) -> str:
+    """校验中国居民身份证号（GB 11643），并解析国标公开字段。
+
+    ★ 纯本地算法，不联网、零凭证：按 ISO 7064 MOD 11-2 加权算法验证末位校验码。
+      这类 17 位加权求和 + 模 11 查表，**AI 自行计算极易出错**（因子表或索引错位）。
+      因此本工具的价值不在"包 API"（它无 API 可包），而在**替 AI 算对**。
+
+    参数 id_number：18 位身份证号，末位 X/x 大小写均可。
+    隐私：仅解析国标公开字段（出生日期/性别/省级），不触姓名与住址；回显做中间掩码。
+    """
+    s = (id_number or "").strip().upper()
+    if len(s) != 18:
+        return f"[身份证] 长度应为 18 位，当前 {len(s)} 位：{s}"
+    body, tail = s[:17], s[17]
+    if not body.isdigit():
+        return f"[身份证] 前 17 位应全为数字，当前：{body}"
+    total = sum(int(body[i]) * _ID_WEIGHTS[i] for i in range(17))
+    expect = _ID_CHECK[total % 11]
+    if tail != expect:
+        return (f"[身份证] 校验位错误：期望 {expect}，实际 {tail}\n"
+                f"  号码 {s} 不是有效的居民身份证号")
+    born_s = body[6:14]
+    try:
+        born = datetime.strptime(born_s, "%Y%m%d")
+    except ValueError:
+        return f"[身份证] 出生日期段非法：{born_s}"
+    if born > datetime.now():
+        return f"[身份证] 出生日期晚于今天：{born.date()}"
+    seq = body[16]
+    gender = "男" if int(seq) % 2 == 1 else "女"
+    masked = body[:6] + "*" * 8 + tail
+    return (
+        f"[身份证] {s} → 有效\n"
+        f"  校验位：{tail} 正确（ISO 7064 MOD 11-2）\n"
+        f"  出生日期：{born.date()}\n"
+        f"  性别：{gender}（顺序码 {seq} 为{'奇' if int(seq) % 2 else '偶'}）\n"
+        f"  省级行政区：{_PROVINCES.get(body[:2], '未知')}（{body[:2]}）\n"
+        f"  回显掩码：{masked}"
+    )
+
+
 def main():
     mcp.run()
 

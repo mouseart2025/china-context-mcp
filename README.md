@@ -23,6 +23,7 @@
 | `holiday_info(date)` | timor.tech | 查询中国某日期是否为法定节假日、调休补班工作日、工资倍率 |
 | `holiday_summary(year?)` | timor.tech | **年度聚合摘要**：连续假期区间与天数、法定 3 倍工资天数、调休补班清单、全年总休假天数。省略 year 用当年 |
 | `history_today(date?)` | 60s-api.viki.moe | 历史上的今天：某月某日的历史事件列表（标题/年份/简述）；省略 date 用今天 |
+| `idcard_check(id)` | **本地算法（不联网）** | 中国身份证号校验 + 解析：按 ISO 7064 MOD 11-2 验证校验位，输出出生日期、性别、省级行政区，回显做掩码 |
 
 ### `holiday_summary` 为什么是差异化的一层
 
@@ -53,11 +54,37 @@ timor 的两个接口都只给**扁平数据**：`holiday_info` 一次一天，`
 
 **一处必须记住的坑**：合并假期区间要按**日期连续性**，不能按名称。中国法定假常把「春节」拆成 除夕/初一/初二…（且假日条目的 `target` 字段恒为 `-`，无法用于分组），按同名合并会把春节拆成 9 个单日区间，与「春节放 9 天」的用户心智严重不符。
 
+### `idcard_check` 为什么值得单独一提
+
+这是本项目**唯一不依赖第三方 API** 的模块——纯本地算法，永远可用，不会被上游关停或 Cloudflare 拦截。
+
+价值不在"算法稀缺"（Python 有现成库），而在于 **AI 自己做 17 位加权求和 + 模 11 查表极容易算错**：加权因子表错位、索引偏移、X 大小写处理，任何一个小错都会导致校验结论颠倒。把这件事从"AI 现场算"改成"AI 调用一次拿到确定答案"，价值是实打实的。
+
+```
+[idcard] 11010519491231002X → 有效
+  校验位：X 正确（ISO 7064 MOD 11-2）
+  出生日期：1949-12-31
+  性别：女（顺序码 2 为偶）
+  省级行政区：北京市（11）
+  回显掩码：110105********X
+```
+
+**隐私边界**：只解析国标公开字段，不触姓名、住址等隐私项；回显中间掩码，避免明文回传。
+
 ## 安装
 
+未发布 PyPI，从 GitHub 装：
+
 ```bash
-cd prod/china-mcp
+git clone https://github.com/mouseart2025/china-context-mcp.git
+cd china-context-mcp
 pip install -e .
+```
+
+若用 `uv`，一行即可（推荐，自动解依赖）：
+
+```bash
+uvx --from git+https://github.com/mouseart2025/china-context-mcp china-context-mcp
 ```
 
 依赖：`mcp`、`fastmcp`（Python ≥ 3.10）。
