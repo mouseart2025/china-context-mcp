@@ -127,6 +127,15 @@ def _holiday_year_raw(year: int) -> dict:
     return _get(f"https://timor.tech/api/holiday/year/{year}")
 
 
+def _wage_label(wage: int) -> str:
+    """把 timor 的 wage 数值写成人读的倍数标签（3/2 → 「3」/「2」，其余如实）。
+
+    ★ 不能一律兜底成「2」：wage 为 1（普通周末）时也输出「2倍」，会把
+      「这天不加班」说成「这天双倍加班」，是薪酬口径上的实质性错报。
+    """
+    return {3: "3", 2: "2"}.get(wage, str(wage))
+
+
 def _md_to_date(year: int, md: str) -> datetime:
     m, d = md.split("-")
     return datetime(year, int(m), int(d))
@@ -194,7 +203,6 @@ def holiday_summary(year: int = None) -> str:
         makeup = [f"  · {md} {v.get('name') or ''}（调休上班，非假日）"
                   for md, v in sorted(entries.items()) if not v.get("holiday")]
         total_days = sum(x[3] for x in merged)
-        triple_days = sum(x[4] for x in merged)
         lines = [f"{y} 年中国节假日与调休摘要", "",
                  f"【假期区间】共 {len(merged)} 个，合计 {total_days} 天（不含补班）"]
         for name, s, e, days, triple, by_wage in merged:
@@ -206,8 +214,11 @@ def holiday_summary(year: int = None) -> str:
             #   回查 365 行原始数据才能知道是哪几天 —— 工作没被减掉。
             for wage in sorted(by_wage, reverse=True):
                 items = by_wage[wage]
-                if len(items) < 2:
-                    continue
+                # ★ 分组必须全打，不能因为「不足 2 天」而整组跳过。
+                #   3 倍工资常常只有 1 天（2026 清明只有 04-05 是清明节气当天，
+                #   04-04/04-06 是周六与调休），而「哪几天算 3 倍」正是本工具存在的理由。
+                #   一旦跳过，区间标题里的「（3倍工资 1 天）」就成了找不到对应日期的空话，
+                #   输出自相矛盾。全打之后，明细组是区间的等价划分，这类矛盾不可能再出现。
                 # ★ 只显示首日的名称：同一区间内 timor 常给每天相同的 name（元旦 3 天都叫
                 #   「元旦」），逐一拼会造成「元旦、元旦、元旦」这种毫无增量信息的输出。
                 #   真正要回答的是「哪几天」，所以日期必显，名称仅在异于首日时才带。
@@ -218,14 +229,22 @@ def holiday_summary(year: int = None) -> str:
                     #   「05-01 ~ 05-05」下面时会被读成 3 月 3/4/5 日 —— 比不给还糟。
                     tag = f"{md} {nm}".strip() if nm and nm != base else md
                     parts.append(tag)
-                lines.append(f"      {'3' if wage == 3 else '2'}倍 {len(items)} 天：{'、'.join(parts)}")
+                lines.append(f"      {_wage_label(wage)}倍 {len(items)} 天：{'、'.join(parts)}")
         lines.append("")
         if makeup:
             lines.append(f"【调休补班】共 {len(makeup)} 天")
             lines.extend(makeup)
             lines.append("")
-        lines.append(f"【工资倍率】3倍 {triple_days} 天 / "
-                     f"2倍 {total_days - triple_days} 天")
+        # ★ 页脚按实际 wage 直方图统计，不再假设「非 3 倍即 2 倍」。
+        #   旧写法 total_days - triple_days 一旦出现 wage=1 的条目，
+        #   就会把不加班日算成双倍加班；直方图不给这种错报留余地。
+        wage_hist: dict[int, int] = {}
+        for _n, _s, _e, _d, _tri, bw in merged:
+            for w, items in bw.items():
+                wage_hist[w] = wage_hist.get(w, 0) + len(items)
+        lines.append("【工资倍率】" + " / ".join(
+            f"{_wage_label(w)}倍 {n} 天"
+            for w, n in sorted(wage_hist.items(), reverse=True)))
         return "\n".join(lines)
     except Exception as e:  # noqa: BLE001
         return _err("节假日摘要", e)

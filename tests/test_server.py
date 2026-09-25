@@ -4,6 +4,7 @@
 跑法：PYTHONPATH=src pytest -q
 """
 import asyncio
+import re
 
 from fastmcp import Client
 from china_context_mcp.server import mcp, _ID_WEIGHTS, _ID_CHECK
@@ -94,6 +95,23 @@ def test_holiday_summary_2026_aggregate():
                 assert md in text, f"缺补班日 {md}：{text}"
             assert "3倍 13 天" in text, f"3 倍工资应为 13 天：{text}"
             assert "2倍 20 天" in text, f"2 倍工资应为 20 天：{text}"
+
+            # ★ 回归锁（2026-09-25）：逐日明细必须列出标题宣称的每一个 3 倍日。
+            #   旧代码 `if len(items) < 2: continue` 会把「只有 1 天」的倍率组整组跳过，
+            #   于是 元旦/清明/端午/中秋 4 个 3 倍日只在标题出现、明细里永远查不到 ——
+            #   而这正是本工具存在的理由（「哪几天算 3 倍」）。
+            for md in ("01-01", "04-05", "06-19", "09-25"):
+                assert f"3倍 1 天：{md}" in text, f"{md} 的 3 倍日未在明细中列出：{text}"
+
+            # ★ 结构性校验：每个区间下方「N倍 M 天」的 M 之和必须等于区间天数。
+            #   上一条只覆盖 3 倍；这一条把「明细与标题自相矛盾」整类问题都锁住。
+            for blk in re.split(r"\n(?=  · )", text):
+                m = re.match(r"  · \S+  \d\d-\d\d ~ \d\d-\d\d   (\d+)天", blk)
+                if not m:
+                    continue
+                want, got = int(m.group(1)), sum(
+                    int(x) for x in re.findall(r"(\d+) 天：", blk))
+                assert got == want, f"明细 {got} 天与区间 {want} 天不符：{blk.splitlines()[0]}"
             bad = _text(await c.call_tool("holiday_summary", {"year": 3050}))
             assert "1900" in bad, f"非法年份应被拦截：{bad}"
     asyncio.run(_run())
