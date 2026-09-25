@@ -1,0 +1,89 @@
+name: release
+
+# 发布链（PRD AC-04）：抬版本 → PyPI → Registry 重发，三者不可分。
+# 本工作流负责前两步中的「PyPI」；第三步 `mcp-publisher publish` 需人工执行（见下方注释）。
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+jobs:
+  # ---- 门 1：版本一致性（tag / pyproject / 包名占位）----------------------
+  preflight:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: git tag 必须与 pyproject 版本一致
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_REF_NAME#v}"
+          VER=$(python -c 'import tomllib,pathlib;print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"])')
+          echo "tag=$TAG  pyproject=$VER"
+          if [ "$TAG" != "$VER" ]; then
+            echo "::error::tag($TAG) 与 pyproject.version($VER) 不一致 —— 发布中止"
+            exit 1
+          fi
+      - name: 包名占位确认（不可撤销、名称不可重名复用）
+        run: |
+          set -euo pipefail
+          NAME=$(python -c 'import tomllib,pathlib;print(tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["name"])')
+          NORM=$(python -c "import re,sys;print(re.sub(r'[-_.]+','-',sys.argv[1]).lower())" "$NAME")
+          CODE=$(curl -s -o /dev/null -w '%{http_code}' "https://pypi.org/pypi/$NORM/json")
+          echo "包名 $NAME (规范化 $NORM) → PyPI 状态 $CODE"
+          # 200 = 已存在：只有版本尚未上传时才允许继续；由下面 publish 步骤自身报错兜底
+          if [ "$CODE" = "200" ]; then
+            echo "::warning::包名已存在。首次发布不可撤销，确认这是你自己的项目后再继续。"
+          fi
+
+  # ---- 门 2：构建 --------------------------------------------------------
+  build:
+    needs: preflight
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: 安装构建工具
+        run: python -m pip install --upgrade pip build
+      - name: 构建 sdist + wheel
+        run: python -m build
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
+
+  # ---- 门 3：发布到 PyPI（Trusted Publisher / OIDC，零密钥）--------------
+  publish-pypi:
+    needs: build
+    runs-on: ubuntu-latest
+    environment: release          # 需在 GitHub 仓库设置里配置 PyPI Trusted Publisher
+    permissions:
+      id-token: write             # ★ OIDC 必需；不得改用 PYPI_API_TOKEN / TWINE_PASSWORD
+      contents: read
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist/
+      - name: Publish to PyPI (OIDC)
+        uses: pypa/gh-action-pypi-publish@release/v1
+        # 该 action 走 OIDC 交换令牌，无需任何 secret。
+        # ★ 若哪天有人改成 token 发布，请先看 PRD AC-02.4：那是被禁止的。
+
+  # ---- 门 4：提醒 Registry 重发（人工，未自动化）--------------------------
+  registry-reminder:
+    needs: publish-pypi
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: 提示
+        run: |
+          echo "::warning::PyPI 已发布。发布链还有第三步未完成："
+          echo "::warning::  mcp-publisher publish    # 重新发布官方 MCP Registry 条目"
+          echo "::warning::不做这一步 ⇒ Registry 条目版本停留在旧值（漂移），"
+          echo "::warning::且 README 首条安装命令不得改为 PyPI 路径（AC-02.7 同真同假）。"
