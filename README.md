@@ -173,18 +173,24 @@ Registry 的 `remotes[].url` 是提交者自己填的，没有任何存活校验
 
 ## 安装
 
-未发布 PyPI，从 GitHub 装：
+已发布 PyPI（v0.1.4，Python ≥ 3.10）：
+
+```bash
+pip install china-context-mcp
+```
+
+若用 `uv`，一行即可（自动解依赖）：
+
+```bash
+uvx china-context-mcp
+```
+
+也可以直接从 GitHub 装（开发版，未经发布流程校验）：
 
 ```bash
 git clone https://github.com/mouseart2025/china-context-mcp.git
 cd china-context-mcp
 pip install -e .
-```
-
-若用 `uv`，一行即可（推荐，自动解依赖）：
-
-```bash
-uvx --from git+https://github.com/mouseart2025/china-context-mcp china-context-mcp
 ```
 
 依赖：`mcp`、`fastmcp`（Python ≥ 3.10）。
