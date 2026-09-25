@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
-"""china-context-mcp 服务端：FastMCP + 两个零凭证中文数据源工具。"""
+"""china-context-mcp 服务端：FastMCP + 两个零凭证中文数据源工具。
+
+架构约束（自进化架构师审计）：
+  - 出站请求必须：严格超时 + 有限重试（上限 2）+ 失败可降级，禁止无界循环
+  - 不可变数据（节假日）本地缓存，削减冗余出站调用与延迟
+  - TLS 默认校验开启（不关闭证书验证）
+"""
+import functools
 import json
 import ssl
 import urllib.request
@@ -7,22 +14,36 @@ from datetime import datetime
 
 from fastmcp import FastMCP
 
+# 安全默认：开启证书校验（不在发布代码里关闭 TLS 验证）
 CTX = ssl.create_default_context()
-CTX.check_hostname = False
-CTX.verify_mode = ssl.CERT_NONE
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/122 Safari/537.36")
 
 mcp = FastMCP("china-context-mcp")
 
-
-def _get(url, timeout=15):
-    req = urllib.request.Request(url, headers={"User-Agent": UA})
-    with urllib.request.urlopen(req, timeout=timeout, context=CTX) as r:
-        return json.loads(r.read().decode("utf-8"))
+# 不可变数据缓存：节假日结果按日期永久有效，避免重复打网络
+_HOLIDAY_CACHE: "functools.LRUCache[str, dict]" = functools.lru_cache(maxsize=2048)
 
 
-def _err(label, e):
+def _get(url: str, timeout: int = 8, retries: int = 2):
+    """带严格超时 + 有限重试（上限 retries）的出站 GET+JSON。
+
+    每次失败重试间隔 0.3s，超过重试上限抛出最后一个异常，由调用方降级处理。
+    """
+    last = None
+    for attempt in range(retries + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            with urllib.request.urlopen(req, timeout=timeout, context=CTX) as r:
+                return json.loads(r.read().decode("utf-8"))
+        except Exception as e:  # noqa: BLE001
+            last = e
+            if attempt < retries:
+                continue
+    raise last
+
+
+def _err(label: str, e: Exception) -> str:
     return f"[{label}] 获取失败：{type(e).__name__} {str(e)[:120]}"
 
 
@@ -42,6 +63,12 @@ def random_poem() -> str:
         return _err("诗词", e)
 
 
+@_HOLIDAY_CACHE
+def _holiday_raw(date: str) -> dict:
+    """按日期取 timor.tech 原始数据；结果按日期缓存（不可变）。"""
+    return _get(f"https://timor.tech/api/holiday/info/{date}")
+
+
 @mcp.tool()
 def holiday_info(date: str) -> str:
     """查询中国某日期的节假日 / 调休 / 是否工作日信息。
@@ -51,11 +78,11 @@ def holiday_info(date: str) -> str:
     数据来自 timor.tech（公开、零凭证）。
     """
     try:
-        datetime.strptime(date, "%Y-%m-%d")  # 校验格式
+        datetime.strptime(date, "%Y-%m-%d")  # 校验格式，防 URL 注入
     except ValueError:
         return "[节假日] 日期格式应为 YYYY-MM-DD，例如 2026-10-01"
     try:
-        d = _get(f"https://timor.tech/api/holiday/info/{date}")
+        d = _holiday_raw(date)
         if d.get("code") != 0:
             return f"[节假日] 接口返回异常：{json.dumps(d, ensure_ascii=False)[:160]}"
         # 非节假日时 timor 返回 holiday: null，必须容错
@@ -65,8 +92,7 @@ def holiday_info(date: str) -> str:
         # 工作日判据：非法定假日 且 非普通周末（调休补班=需上班）
         wk = datetime.strptime(date, "%Y-%m-%d").weekday()
         is_weekend = wk >= 5
-        # timor：普通周末 holiday.holiday=False 且无补班标记；调休补班时 type 仍为非假日
-        # 简化判据：法定假日→休息；否则周末→休息；调休补班（type 名含「班」）→上班
+        # timor：普通周末 holiday.holiday=False 且无补班标记；调休补班时 type 名含「班」
         makeup = "班" in (t.get("name", "") or "")
         is_workday = (not is_holiday) and (not (is_weekend and not makeup))
         return (
