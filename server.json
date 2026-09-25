@@ -1,0 +1,11 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.mouseart2025/china-context-mcp",
+  "title": "China Context MCP",
+  "description": "中国节假日与调休（单日+年度聚合）、历史上的今天、随机诗词、身份证号校验（GB 11643，本地零网络）。零凭证。",
+  "repository": {
+    "url": "https://github.com/mouseart2025/china-context-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0"
+}
