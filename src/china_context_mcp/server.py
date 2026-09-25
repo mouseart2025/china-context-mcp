@@ -17,8 +17,11 @@
 import functools
 import json
 import ssl
+import time
+import urllib.error
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 from fastmcp import FastMCP
 
@@ -31,29 +34,60 @@ CTX = ssl.create_default_context()
 UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/122 Safari/537.36")
 
-mcp = FastMCP("china-context-mcp")
+# ★ 必须显式传 version：不传时 FastMCP 会把**它自己**的版本号（如 4.0.9）
+#   报给客户端，于是 initialize 里 serverInfo.version 显示的是 fastmcp 的版本，
+#   而不是本服务的 —— 客户端与 Registry 看到的是错的版本。
+try:
+    _VERSION = _pkg_version("china-context-mcp")
+except PackageNotFoundError:      # 未安装（如直接跑源码）时兜底
+    _VERSION = "0.1.2"
 
-# 不可变数据缓存：节假日/历史事件按日期永久有效，避免重复打网络
-_HOLIDAY_CACHE: "functools.LRUCache[str, dict]" = functools.lru_cache(maxsize=2048)
-_HISTORY_CACHE: "functools.LRUCache[str, dict]" = functools.lru_cache(maxsize=1024)
-_YEAR_CACHE: "functools.LRUCache[int, dict]" = functools.lru_cache(maxsize=16)
+mcp = FastMCP("china-context-mcp", version=_VERSION)
+
+# 不可变数据缓存：节假日/历史事件按日期有效，避免重复打网络。
+# ★ 不写 `functools.LRUCache[...]` 注解：该类型名在 Python 3.10 并不存在，
+#   只因注解是字符串才没炸；一旦有人调 get_type_hints() 就会崩。
+_HOLIDAY_CACHE = functools.lru_cache(maxsize=2048)
+_HISTORY_CACHE = functools.lru_cache(maxsize=1024)
+_YEAR_CACHE = functools.lru_cache(maxsize=16)
+
+# ★ 默认年份/日期按中国时区取：服务器跑在 UTC-5 时，1/1 前后会取错年份。
+#   中国全境单一时区且无夏令时，固定 +08:00 即可，不必依赖 tzdata。
+CN_TZ = timezone(timedelta(hours=8))
 
 
 def _get(url: str, timeout: int = 8, retries: int = 2):
-    """带严格超时 + 有限重试（上限 retries）的出站 GET+JSON。
+    """带严格超时 + 有限重试（上限 retries）+ 指数退避的出站 GET+JSON。
 
-    每次失败重试间隔 0.3s，超过重试上限抛出最后一个异常，由调用方降级处理。
+    ★ 退避 0.3s×2^attempt；429 时尊重上游 Retry-After（取较大者）。
+    ★ 确定性失败不重试：4xx（429 除外）重试不会变好；上游返回非 JSON
+      （如 Cloudflare 挑战页）重试同样无益 —— 只会把 8s 超时放大成 24s，
+      并在已被限流时把 429 打得更狠。旧版声称「间隔 0.3s」却一行 sleep
+      都没有，正是把上游打进限流的原因（2026-09-25 实测 429 把测试打红）。
     """
     last = None
     for attempt in range(retries + 1):
+        wait = 0.3 * (2 ** attempt)
         try:
-            req = urllib.request.Request(url, headers={"User-Agent": UA})
+            req = urllib.request.Request(
+                url, headers={"User-Agent": UA, "Accept": "application/json"})
             with urllib.request.urlopen(req, timeout=timeout, context=CTX) as r:
                 return json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            if 400 <= e.code < 500 and e.code != 429:
+                raise                      # 确定性失败，重试无意义
+            if e.code == 429:
+                try:
+                    wait = max(wait, float(e.headers.get("Retry-After") or 0))
+                except (TypeError, ValueError):
+                    pass
+            last = e
+        except json.JSONDecodeError:
+            raise                          # 上游返回 HTML，重试不会变 JSON
         except Exception as e:  # noqa: BLE001
             last = e
-            if attempt < retries:
-                continue
+        if attempt < retries:
+            time.sleep(wait)
     raise last
 
 
@@ -176,7 +210,7 @@ def _merge_holidays(year: int, entries: dict) -> list:
 
 
 @mcp.tool()
-def holiday_summary(year: int = None) -> str:
+def holiday_summary(year: int | None = None) -> str:
     """返回中国某年的节假日与调休摘要——聚合推导，不是单日查询。
 
     与 holiday_info 的区别：本工具对 timor 全年扁平数据做聚合，给出
@@ -189,7 +223,7 @@ def holiday_summary(year: int = None) -> str:
     适用：年度休假规划、考勤与排班、HR 与薪酬核算。
     数据来自 timor.tech（公开、零凭证）。
     """
-    y = year or datetime.now().year
+    y = year or datetime.now(CN_TZ).year
     if not (1900 <= y <= 2200):
         return "[节假日摘要] 年份应在 1900–2200 之间"
     try:
@@ -256,7 +290,7 @@ def _normalize_md(date: str):
     返回 None 表示格式非法。
     """
     if not date:
-        t = datetime.now()
+        t = datetime.now(CN_TZ)
         return t.month, t.day
     s = date.strip()
     try:
@@ -281,7 +315,7 @@ def _history_raw(md: str) -> dict:
 
 
 @mcp.tool()
-def history_today(date: str = None) -> str:
+def history_today(date: str | None = None) -> str:
     """返回「历史上的今天」：某月某日发生的历史事件列表（标题 + 年份 + 简述）。
 
     参数 date：可选，格式 "MM-DD"（如 "09-25"）或 "YYYY-MM-DD"（如 "2026-09-25"）。
@@ -365,18 +399,36 @@ def idcard_check(id_number: str) -> str:
     seq = body[16]
     gender = "男" if int(seq) % 2 == 1 else "女"
     masked = body[:6] + "*" * 8 + tail
+    # ★ 首行就必须是掩码：原先这里回显的是完整号码 s，末行才给掩码 ——
+    #   整段输出已经把号码明文送了出去，「回显做中间掩码」是一句空承诺。
     return (
-        f"[身份证] {s} → 有效\n"
+        f"[身份证] {masked} → 有效\n"
         f"  校验位：{tail} 正确（ISO 7064 MOD 11-2）\n"
         f"  出生日期：{born.date()}\n"
         f"  性别：{gender}（顺序码 {seq} 为{'奇' if int(seq) % 2 else '偶'}）\n"
-        f"  省级行政区：{_PROVINCES.get(body[:2], '未知')}（{body[:2]}）\n"
-        f"  回显掩码：{masked}"
+        f"  省级行政区：{_PROVINCES.get(body[:2], '未知')}（{body[:2]}）"
     )
 
 
-def main():
-    mcp.run()
+def main() -> None:
+    """命令行入口：默认 stdio，可选 streamable-http（仅回环，除非显式指定 host）。"""
+    import argparse
+
+    ap = argparse.ArgumentParser(description="china-context-mcp")
+    ap.add_argument("--transport", default="stdio",
+                    choices=["stdio", "streamable-http"])
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="默认只绑回环；对外暴露需显式指定并自行承担鉴权")
+    ap.add_argument("--port", type=int, default=8791)
+    ap.add_argument("--path", default="/mcp")
+    a = ap.parse_args()
+    if a.transport == "stdio":
+        mcp.run()
+    else:
+        # ★ fastmcp 4.0.9 的坑：`run()` 声明了 transport_kwargs，但下层
+        #   run_http_async() 不接受它 —— host/port/path 必须**直接**传。
+        mcp.run(transport="streamable-http",
+                host=a.host, port=a.port, path=a.path)
 
 
 if __name__ == "__main__":

@@ -9,4 +9,11 @@
   - 零凭证：不依赖任何商户 key / 登录态
   - 可验证：开源放出后看 star / issue / 外部使用
 """
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+try:
+    # ★ 版本单一来源：不再在仓库里手写第二份版本号（此前 __init__ 写 0.1.0、
+    #   pyproject 写 0.1.1、server.json 写 0.1.1，三处漂移）。
+    __version__ = _pkg_version("china-context-mcp")
+except PackageNotFoundError:
+    __version__ = "0.1.2"

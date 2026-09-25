@@ -222,6 +222,17 @@ uvx --from git+https://github.com/mouseart2025/china-context-mcp china-context-m
 python -m china_context_mcp   # 启动 stdio 服务，由 MCP 客户端连接
 ```
 
+### 以 HTTP（streamable-http）启动
+
+```bash
+python -m china_context_mcp --transport streamable-http --port 8791
+# → http://127.0.0.1:8791/mcp
+```
+
+> ⚠️ 默认只绑 `127.0.0.1`。要对外暴露需显式传 `--host`，并**自行承担鉴权** ——
+> 本服务不带任何鉴权层，直接暴露在公网等于开放一个无限制的出站代理入口。
+> 本仓库自身不提供托管端点。
+
 ## 路线图（真空待接数据源，按稀缺度）
 
 - [x] 历史上的今天（零凭证，已接 60s-api.viki.moe）

@@ -4,10 +4,23 @@
 跑法：PYTHONPATH=src pytest -q
 """
 import asyncio
+import json
+import pathlib
 import re
 
+import pytest
 from fastmcp import Client
 from china_context_mcp.server import mcp, _ID_WEIGHTS, _ID_CHECK
+
+# ★ 2026 全年上游响应快照（2026-09-25 抓取，39 条，code=0）。
+#   聚合逻辑是我们自己的代码，它的正确性不该由上游可用性决定。
+FIXTURE = pathlib.Path(__file__).parent / "fixtures" / "timor_2026.json"
+
+
+def _skip_if_limited(text: str) -> None:
+    """上游限流(429)时跳过而非判红：CI 的稳定性不押在上游限流策略上。"""
+    if "429" in text or "Too Many Requests" in text:
+        pytest.skip(f"上游限流，跳过联网断言：{text[:80]}")
 
 
 def _mk_id(born: str, seq: str = "002", prefix: str = "110105") -> str:
@@ -46,6 +59,7 @@ def test_history_today_specific_and_default():
         async with Client(mcp) as c:
             # 指定日期
             text = _text(await c.call_tool("history_today", {"date": "09-25"}))
+            _skip_if_limited(text)
             assert "历史上的今天（09-25）" in text and "条" in text
             # 默认今天（不传 date）
             text2 = _text(await c.call_tool("history_today", {}))
@@ -60,6 +74,7 @@ def test_random_poem_returns_content():
     async def _run():
         async with Client(mcp) as c:
             text = _text(await c.call_tool("random_poem", {}))
+            _skip_if_limited(text)
             assert "——" in text
     asyncio.run(_run())
 
@@ -69,6 +84,7 @@ def test_holiday_six_cases():
         async with Client(mcp) as c:
             for date, (name, work) in CASES.items():
                 text = _text(await c.call_tool("holiday_info", {"date": date}))
+                _skip_if_limited(text)
                 assert "获取失败" not in text, f"{date} 调用失败：{text}"
                 if name:
                     assert name in text, f"{date} 应含「{name}」：{text}"
@@ -77,12 +93,21 @@ def test_holiday_six_cases():
     asyncio.run(_run())
 
 
-def test_holiday_summary_2026_aggregate():
-    """编排层回归：2026 全年聚合结论必须与实测数据逐项一致。
+def test_holiday_summary_2026_aggregate(monkeypatch):
+    """编排层回归：2026 全年聚合结论必须与**离线快照**逐项一致。
+
+    ★ 为什么改用 fixture：原实现真联网，CI 的稳定性等于押在上游限流策略上 ——
+      2026-09-25 上游返回 429 直接把这条打红。聚合是我们自己的代码，
+      它的正确性应由快照决定，不由上游可用性决定。
 
     重点锁住「春节不被农历名拆散」——这是 _merge_holidays 按日期连续而非
     同名合并的原因（同名合并会把春节拆成 除夕/初一/初二…9 个单日区间）。
     """
+    import china_context_mcp.server as srv
+
+    snap = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    monkeypatch.setattr(srv, "_holiday_year_raw", lambda _y: snap)
+
     async def _run():
         async with Client(mcp) as c:
             text = _text(await c.call_tool("holiday_summary", {"year": 2026}))
@@ -128,6 +153,9 @@ def test_idcard_check_valid_and_rejects():
             assert "北京市" in good, f"省级解析错：{good}"
             assert "女" in good, f"性别解析错：{good}"
             assert "********" in good, "回显必须掩码，避免明文回传"
+            # ★ 反向断言：只断言「掩码存在」是不够的 —— 旧版首行就回显了完整号码，
+            #   而这条断言照样通过。掩码类需求必须反过来测「明文不存在」。
+            assert "11010519491231002X" not in good, "回显不得包含完整号码明文"
             bad = _text(await c.call_tool("idcard_check",
                                           {"id_number": "110105194912310021"}))
             assert "不是有效" in bad, f"校验位错误未被拒：{bad}"
