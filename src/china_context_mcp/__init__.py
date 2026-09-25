@@ -16,4 +16,4 @@ try:
     #   pyproject 写 0.1.1、server.json 写 0.1.1，三处漂移）。
     __version__ = _pkg_version("china-context-mcp")
 except PackageNotFoundError:
-    __version__ = "0.1.3"
+    __version__ = "0.1.4"

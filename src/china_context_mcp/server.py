@@ -25,6 +25,8 @@ from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
 from fastmcp import FastMCP
 
+from china_context_mcp.statutory import fixed_name, year_fixed_dates
+
 # 安全默认：开启证书校验（不在发布代码里关闭 TLS 验证）
 CTX = ssl.create_default_context()
 # ★ 可用性依赖，不是装饰：timor.tech 对非浏览器 UA 返回 Cloudflare 人机验证页
@@ -39,8 +41,10 @@ UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
 #   而不是本服务的 —— 客户端与 Registry 看到的是错的版本。
 try:
     _VERSION = _pkg_version("china-context-mcp")
-except PackageNotFoundError:      # 未安装（如直接跑源码）时兜底
-    _VERSION = "0.1.3"
+except PackageNotFoundError:
+    # ★ 原先这里硬编码 "0.1.3" —— 那是与 pyproject 并存的**第二份**版本号常量，
+    #   必然二次漂移（PRD AC-02.3）。改为兜底到包的单一来源。
+    from china_context_mcp import __version__ as _VERSION  # noqa: PLC0415
 
 mcp = FastMCP("china-context-mcp", version=_VERSION)
 
@@ -117,39 +121,115 @@ def _holiday_raw(date: str) -> dict:
     return _get(f"https://timor.tech/api/holiday/info/{date}")
 
 
+@functools.lru_cache(maxsize=64)
+def _year_has_data(year: int) -> bool | None:
+    """该年份上游是否有节假日数据。
+
+    返回三态，且**必须**保留三态：
+      True  = 有数据（此时「不是法定假日」才是可信的否定结论）
+      False = 该年无数据
+      None  = 取数失败，覆盖与否未知
+
+    ★ 为什么不能塌成布尔：塌成 False 就会让「取数失败」被当成「确定不是节假日」，
+      与本次修的那个 P0 是同一类错误。带 lru_cache 是为了满足「每进程每年 ≤1 次年份端点调用」。
+    """
+    try:
+        return bool((_holiday_year_raw(year) or {}).get("holiday"))
+    except Exception:  # noqa: BLE001
+        return None
+
+
 @mcp.tool()
 def holiday_info(date: str) -> str:
     """查询中国某日期的节假日 / 调休 / 是否工作日信息。
 
     参数 date：YYYY-MM-DD，例如 "2026-10-01"。
     返回：节假日名称、是否法定假日、是否调休补班工作日、工资倍率。
-    数据来自 timor.tech（公开、零凭证）。
+    数据来自 timor.tech（公开、零凭证）+《全国年节及纪念日放假办法》法规常量层（离线）。
+
+    ★ 三态语义（本工具的核心契约，不得退化）：
+      - 该年份有权威数据 ⇒ 正常给出法定假日 / 工作日 / 倍率。
+      - 该年份无数据，但日期是《放假办法》规定的**公历固定法定节假日**
+        （元旦 1/1、劳动节 5/1-5/2、国庆 10/1-10/3）⇒ 法定假日**是**，并注明放假起止与调休待公布。
+      - 其余无数据情况 ⇒ 明确说「暂无权威数据、无法判断」，**绝不说「否」**。
     """
     try:
-        datetime.strptime(date, "%Y-%m-%d")  # 校验格式，防 URL 注入
+        dt = datetime.strptime(date, "%Y-%m-%d")  # 校验格式，防 URL 注入
     except ValueError:
         return "[节假日] 日期格式应为 YYYY-MM-DD，例如 2026-10-01"
+    md = date[5:10]
     try:
         d = _holiday_raw(date)
         if d.get("code") != 0:
             return f"[节假日] 接口返回异常：{json.dumps(d, ensure_ascii=False)[:160]}"
-        # 非节假日时 timor 返回 holiday: null，必须容错
-        h = d.get("holiday") or {}
         t = d.get("type", {}) or {}
-        is_holiday = bool(h.get("holiday"))
-        # 工作日判据：非法定假日 且 非普通周末（调休补班=需上班）
-        wk = datetime.strptime(date, "%Y-%m-%d").weekday()
+        # ★ 不要再写 `h = d.get("holiday") or {}` —— 那句"容错"正是 P0 的根因：
+        #   它把「该年份无数据」与「这天确定是普通工作日」压成了同一种状态。
+        h = d.get("holiday")
+        if isinstance(h, dict) and h.get("holiday"):
+            # ---- 态一：上游明确判定为法定假日 ----
+            makeup = "班" in (t.get("name", "") or "")
+            return (
+                f"日期 {date}：\n"
+                f"  名称：{h.get('name') or '（节假日）'}\n"
+                f"  法定假日：是\n"
+                f"  是否工作日：否\n"
+                f"  工资倍率：{h.get('wage', 1)}x"
+            )
+
+        covered = _year_has_data(dt.year)
+        name_fixed = fixed_name(md)
+
+        if covered is False and name_fixed:
+            # ---- 态二：该年无数据，但日期是法规规定的公历固定法定节假日 ----
+            return (
+                f"日期 {date}：\n"
+                f"  名称：{name_fixed}\n"
+                f"  法定假日：是（依据《全国年节及纪念日放假办法》，公历日期固定，与年度调休无关）\n"
+                f"  是否工作日：否\n"
+                f"  工资倍率：3x\n"
+                f"  注：{dt.year} 年的放假起止与调休补班安排尚未收录，"
+                f"具体放假区间请待国务院办公厅年度通知发布后查询。"
+            )
+        if covered is False:
+            # ---- 态三：该年无数据，且非固定法定日 ⇒ 未知，不得说「否」 ----
+            wk = "一二三四五六日"[dt.weekday()]
+            return (
+                f"日期 {date}：\n"
+                f"  法定假日：无法确定\n"
+                f"  是否工作日：无法确定\n"
+                f"  星期：{wk}（日历推算，非权威判定）\n"
+                f"  注：{dt.year} 年暂无权威放假安排数据。"
+                f"调休可能把周末变为工作日、也可能把工作日变为休息日，故不得据此判定。"
+            )
+        if covered is None:
+            # ---- 年份覆盖探测失败：降级但**不许断言** ----
+            if name_fixed:
+                return (
+                    f"日期 {date}：\n"
+                    f"  名称：{name_fixed}\n"
+                    f"  法定假日：是（依据《全国年节及纪念日放假办法》，公历日期固定）\n"
+                    f"  注：{dt.year} 年调休数据获取失败，放假起止与补班日无法确定。"
+                )
+            return (
+                f"日期 {date}：\n"
+                f"  法定假日：无法确定（{dt.year} 年调休数据获取失败，无法判断）\n"
+                f"  是否工作日：无法确定"
+            )
+
+        # ---- 态一（续）：该年有数据，且这天确实不是法定假日 ----
+        wk = dt.weekday()
         is_weekend = wk >= 5
         # timor：普通周末 holiday.holiday=False 且无补班标记；调休补班时 type 名含「班」
         makeup = "班" in (t.get("name", "") or "")
-        is_workday = (not is_holiday) and (not (is_weekend and not makeup))
+        is_workday = not (is_weekend and not makeup)
         return (
             f"日期 {date}：\n"
-            f"  名称：{h.get('name') or t.get('name') or '（普通日）'}\n"
-            f"  法定假日：{'是' if is_holiday else '否'}\n"
+            f"  名称：{t.get('name') or '（普通日）'}\n"
+            f"  法定假日：否\n"
             f"  是否工作日：{'是' if is_workday else '否'}"
             f"{'（调休补班）' if makeup else ''}\n"
-            f"  工资倍率：{h.get('wage', 1)}x"
+            f"  工资倍率：1x"
         )
     except Exception as e:  # noqa: BLE001
         return _err("节假日", e)
@@ -232,7 +312,26 @@ def holiday_summary(year: int | None = None) -> str:
             return f"[节假日摘要] 接口返回异常：{json.dumps(resp, ensure_ascii=False)[:160]}"
         entries = resp.get("holiday") or {}
         if not entries:
-            return f"{y} 年暂无收录的节假日数据"
+            # ★ 空年份不再只回一句「暂无收录」——那会让 holiday_info 与 holiday_summary
+            #   对同一上游状态给出互相矛盾的结论（一个说没数据、一个说"确定不是节假日"）。
+            #   两个工具必须回落到同一个法规常量层。
+            fixed = year_fixed_dates(y)
+            lines = [
+                f"{y} 年暂无收录的节假日数据（国务院办公厅年度放假安排通知尚未发布或未收录）。",
+                "",
+                f"【法定节假日】以下 {len(fixed)} 天由《全国年节及纪念日放假办法》直接规定，"
+                f"公历日期固定，与年度调休无关：",
+            ]
+            for full, nm, _wk in fixed:
+                lines.append(f"  · {full[5:]}  {nm}  法定假日：是  工资倍率：3x")
+            lines += [
+                "",
+                "  注：放假起止区间与调休补班安排须待国务院办公厅年度通知发布后确定，"
+                "当前不予推测。",
+                "  另：春节、清明、端午、中秋为农历日，公历日期逐年浮动，"
+                "不做本地推算。",
+            ]
+            return "\n".join(lines)
         merged = _merge_holidays(y, entries)
         makeup = [f"  · {md} {v.get('name') or ''}（调休上班，非假日）"
                   for md, v in sorted(entries.items()) if not v.get("holiday")]
