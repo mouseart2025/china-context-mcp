@@ -4,6 +4,12 @@
 
 🔎 已收录进官方 MCP Registry：`io.github.mouseart2025/china-context-mcp` —— [查看详情](https://registry.modelcontextprotocol.io/v0.1/servers/io.github.mouseart2025/china-context-mcp/versions/latest)
 
+mcp-name: io.github.mouseart2025/china-context-mcp
+
+<!-- 上面这行是官方 Registry 的归属校验标记：一旦在 server.json 里声明了 pypi 形态的
+     packages 条目，Registry 就会要求该包的 README 里出现这行「mcp-name: <完整 server 名」，
+     否则 publish 直接被 400 打回。它必须逐字出现、不可改写大小写与空格。 -->
+
 ## 为什么做这个
 
 给 AI 提供工具/服务/资源，是未来需求的重要方向。但调研发现一个结构性缺口：
