@@ -7,5 +7,15 @@
     "url": "https://github.com/mouseart2025/china-context-mcp",
     "source": "github"
   },
-  "version": "0.1.4"
+  "version": "0.1.5",
+  "packages": [
+    {
+      "registryType": "pypi",
+      "identifier": "china-context-mcp",
+      "version": "0.1.4",
+      "transport": {
+        "type": "stdio"
+      }
+    }
+  ]
 }
